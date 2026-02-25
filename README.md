@@ -22,7 +22,7 @@ year|orders_count|revenue    |
 2024|       12790|36371632.95|
 ```
 
-2. This section analyzes orders of the online store and monthly AOV (average order value) based on completed orders.
+2. This section analyzes orders of the online store and monthly **AOV** (average order value) based on completed orders.
 ```sql
 SELECT
     STRFTIME('%Y-%m', order_date) AS month,
@@ -234,7 +234,7 @@ Customer inactivity analysis shows a gradual decline over time: 4.7% of customer
 
 2. Monthly Customer Retention
 
-Monthly cohort analysis shows a sharp decline in retention after the first purchase, with less than half of customers returning in the following month. Retention continues to decrease significantly in subsequent months, indicating that customer engagement drops quickly after the initial transaction.
+Monthly **cohort analysis** shows a sharp decline in retention after the first purchase, with less than half of customers returning in the following month. Retention continues to decrease significantly in subsequent months, indicating that customer engagement drops quickly after the initial transaction.
 ```sql
 WITH first_order AS (
     SELECT
@@ -318,7 +318,68 @@ These insights highlight opportunities to further increase engagement, suggestin
 
 While overall 66% of customers have made repeat purchases, the monthly cohort retention table shows lower percentages (5–15%) for the first 1–3 months. This discrepancy is expected: many repeat purchases occur after the initial 3-month window, and later cohorts may not yet have had time to make a second purchase. Therefore, low short-term retention does not contradict the strong overall repeat purchase rate.
 
-3. Early Customer Retention & Repeat Purchase Analysis
+3. Customer Loyalty & Retention Analysis (**RFM**)
+
+To understand the health of our customer base, I performed a segmentation based on Recency (time since last purchase). This analysis reveals how engagement levels and spending power change as time passes between orders.
+
+Note: While individual Customer IDs were excluded from this summary table to focus on aggregate behavioral trends, they can be easily re-integrated into the dataset to generate specific mailing lists for targeted marketing strategies.
+```sql
+WITH RawData AS (
+    SELECT 
+        customer_id,
+        MAX(order_date) as last_order_date,
+        COUNT(order_id) as orders_count,
+        SUM(total_price) as total_spent
+    FROM orders
+    GROUP BY customer_id
+),
+ReferenceDate AS (
+    SELECT MAX(order_date) as max_date 
+    FROM orders
+),
+CustomerSegmentation AS (
+    SELECT 
+        customer_id,
+        orders_count,
+        total_spent,
+        CASE 
+            WHEN ((strftime('%Y', rd.max_date) - strftime('%Y', r.last_order_date)) * 12 +
+                  (strftime('%m', rd.max_date) - strftime('%m', r.last_order_date))) <= 1 THEN '1 month ago'
+            WHEN ((strftime('%Y', rd.max_date) - strftime('%Y', r.last_order_date)) * 12 +
+                  (strftime('%m', rd.max_date) - strftime('%m', r.last_order_date))) = 2 THEN '2 months ago'
+            WHEN ((strftime('%Y', rd.max_date) - strftime('%Y', r.last_order_date)) * 12 +
+                  (strftime('%m', rd.max_date) - strftime('%m', r.last_order_date))) = 3 THEN '3 months ago'
+            ELSE 'More than 4 months'
+        END AS Recency_Group
+    FROM RawData r, ReferenceDate rd
+)
+SELECT 
+    Recency_Group,
+    ROUND(CAST(SUM(orders_count) AS FLOAT) / COUNT(customer_id), 2) AS Frequency,
+    ROUND(SUM(total_spent) / COUNT(customer_id), 2) AS Monetary
+FROM CustomerSegmentation
+GROUP BY Recency_Group
+ORDER BY 
+    CASE 
+        WHEN Recency_Group = '1 month ago' THEN 1
+        WHEN Recency_Group = '2 months ago' THEN 2
+        WHEN Recency_Group = '3 months ago' THEN 3
+        ELSE 4
+    END;
+Recency_Group     |Frequency|Monetary|
+------------------+---------+--------+
+1 month ago       |     1.65| 4646.81|
+2 months ago      |     1.62| 4565.67|
+3 months ago      |     1.61| 4615.49|
+More than 4 months|     1.42| 4039.47|
+```
+The "Golden Quarter": Customers who have interacted with the shop within the last 3 months show remarkably stable behavior. Their purchase frequency stays above 1.6 and their average value remains high (around $4.6k). This indicates strong brand loyalty in the initial months after a purchase.
+
+The Churn Cliff: We observe a significant drop-off after the 4-month mark. Frequency falls to 1.42 (a 14% decrease), and average monetary value drops by approximately $600. This suggests that if a customer doesn't return within 90 days, the risk of losing them or their spending power decreasing is high.
+
+Strategic Opportunity: The stability between months 1 and 3 suggests that the business has a "safe window" to maintain engagement. However, the drop-off at 4+ months indicates a need for re-engagement triggers (personalized discounts or "we miss you" emails) specifically targeted at the 90-day mark to prevent this decline.
+
+4. Early Customer Retention & Repeat Purchase Analysis
 
 While monthly cohort analysis provides a long-term view of customer retention, it is also important to examine early-stage customer behavior immediately after the first purchase. This section focuses on understanding how quickly customers disengage or re-engage, as early post-purchase behavior is a strong indicator of future customer lifetime value.
 
@@ -398,14 +459,8 @@ Overall, combining early churn, fast retention, and repeat purchase timing provi
 
 ---
 
-## ARPU / ARPPU / LTV
-While overall revenue and average order metrics provide a high-level view of business performance, understanding customer behavior at a more granular level is essential for targeted marketing and retention strategies. This analysis estimates Customer Lifetime Value (LTV) for each address using the formula:
-
-LTV ≈ ARPU × average number of purchases per customer
-
-In addition, we measure average order value (AOV), purchase frequency, and early repeat behavior (average days between the first and second purchase) to identify patterns in customer loyalty. By grouping data by customer address, we can identify geographic trends and areas with higher-value customers, which is useful for optimizing promotions, loyalty programs, and targeted campaigns.
-
-Note on ARPPU: We did not include ARPPU (average revenue per paying user) in this section because the dataset contains only paying customers. Including ARPPU here would not provide additional insight beyond ARPU, and our focus is on total customer value and repeat behavior across all addresses, which is more actionable for marketing and retention strategies.
+## Customer Lifetime Value (LTV) & Geographic Profitability Analysis
+While high-level revenue metrics provide a snapshot of performance, granular behavior analysis is essential for sustainable growth. This section evaluates Customer Lifetime Value (LTV) and retention patterns, segmented by geographic location (customer addresses). By measuring Average Order Value (AOV), Purchase Frequency, and Time to Second Purchase, we identify high-value clusters and optimize targeted marketing strategies.
 ```sql
 WITH customer_orders AS (
     SELECT
@@ -519,18 +574,14 @@ address                             |ARPU   |AOV    |frequency|lifespan|LTV    |
 262 Coral Ave, Palm Beach, ND       |3948.62|2750.28|     1.44|  132.62|5669.09|
 555 Palm Dr, Ocean Side, SC         |3814.58|2643.77|     1.44|  109.76|5503.89|
 ```
-The LTV analysis by address reveals meaningful patterns in customer behavior and value:
-- High-Value Customers:
-The highest LTVs (e.g., 828 Shell Rd, Beach Haven, WV – 7,206; 616 Boardwalk St, Canal City, VI – 7,171) are driven by both high ARPU and above-average purchase frequency.
-These addresses represent the most profitable customers and could be prioritized for VIP loyalty programs or personalized offers.
-- ARPU vs. AOV:
-While ARPU (average revenue per customer) varies across addresses, the AOV (average order value) is slightly lower, indicating that some high-LTV addresses achieve their value through repeat purchases rather than exceptionally large single orders.
-- Frequency Patterns:
-Frequency ranges from 1.42 to 1.58 purchases per customer, showing that even small increases in repeat purchases have a noticeable effect on LTV.
-Addresses with lower frequency but high ARPU still achieve moderate LTV, suggesting strategies to increase repeat purchases could further boost lifetime value.
-- Lifespan Insights:
-Average days to second purchase (“lifespan”) varies widely (e.g., 91.88 days to 139.65 days).
-Shorter lifespans combined with high frequency result in faster revenue accumulation, while longer lifespans indicate slower but steady engagement.
-- Geographic Insights:
-LTV differences by address show regional trends: certain areas consistently appear in the top LTV range, which could guide geo-targeted marketing or expansion strategies.
-The LTV analysis by customer address shows that West Virginia (WV) and Alaska (AK) consistently rank among the highest in terms of ARPU, purchase frequency, and overall LTV, suggesting strong customer engagement and higher spending potential in these areas. On the other hand, South Carolina (SC) and Puerto Rico (PR) show the lowest values, which may reflect lower solvency, less demand for the product, or a smaller customer base in these regions. These geographic trends provide actionable insights for prioritizing marketing efforts, targeted promotions, and loyalty initiatives.
+Top-Tier Geographic Clusters:
+Addresses in Beach Haven, WV and Canal City, VI exhibit the highest LTV (exceeding $7,000). This performance is driven by a "double-win" of high ARPU and superior purchase frequency (1.47–1.56). These regions should be prioritized for VIP loyalty programs and exclusive previews.
+
+Frequency as a Growth Lever:
+The analysis shows a narrow frequency range (1.42 to 1.58). However, even a 0.1 increase in frequency significantly boosts LTV. This suggests that "Next-Best-Offer" email campaigns could be highly effective in regions like River Valley, GU, where frequency is currently at its lowest (1.42).
+
+The "Second Purchase" Window:
+The average time to a second purchase varies from 92 to 140 days. Regions with shorter windows (e.g., Steel City, PA at 91 days) demonstrate faster brand affinity. Marketing efforts in slower-reacting regions (WV, AK) should focus on "re-engagement" triggers around the 100-day mark.
+
+Regional Economic Variance:
+There is a clear disparity between top-performing states (WV, AK) and lagging regions (SC, PR). The lower LTV in Puerto Rico and South Carolina may indicate price sensitivity or lower market penetration. I recommend testing discount-based promotions in these areas to lower the barrier for repeat purchases.
