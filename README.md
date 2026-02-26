@@ -7,7 +7,7 @@ The analysis covers revenue and order trends, AOV, top products and customers, r
 
 ## Revenue & Orders
 
-1.  Total revenue and yearly order quantity.
+1.  Total Revenue and Yearly Order Quantity.
 ```sql
 SELECT
     STRFTIME('%Y', order_date) AS year,
@@ -22,7 +22,9 @@ year|orders_count|revenue    |
 2024|       12790|36371632.95|
 ```
 
-2. This section analyzes orders of the online store and monthly **AOV** (average order value) based on completed orders.
+2. AOV
+
+This section analyzes orders of the online store and monthly **AOV** (average order value) based on completed orders.
 ```sql
 SELECT
     STRFTIME('%Y-%m', order_date) AS month,
@@ -49,7 +51,7 @@ month  |orders_count|avg_order_value|
 ```
 AOV remains stable across most months, with a noticeable peak in November, suggesting possible seasonal or promotional effects. Order volume is mostly stable with slight seasonal variations. October seems slightly higher; November 2024 is abnormal, likely due to missing data or more expensive items.
 
-3. Top-5 products by revenue
+3. Top-5 Products by Revenue
 ```sql
 WITH cte AS (
     SELECT 
@@ -95,7 +97,7 @@ product_id|name      |category   |quantity|avg_price|weighted_price|price_bias_p
 Weighted average price is calculated as revenue divided by total quantity sold, reflecting the actual price level at which customers most frequently purchase the product. The deviation shows how much the simple average price differs from the weighted average.
 For top-revenue products, the volume-weighted average price exceeds the simple average price, indicating that higher-priced transactions account for a larger share of total units sold. As a result, simple averaging understates effective monetization.
 
-4. Orders by day of the week
+4. Orders by Day of the Week
 ```sql
 SELECT
     CASE CAST(STRFTIME('%w', order_date) AS INTEGER)
@@ -122,6 +124,146 @@ Monday     |       2123|
 Friday     |       2115|
 ```
 Order volume is evenly distributed across all days of the week, with no significant day-of-week effect. Differences between the highest (Tuesday) and lowest (Friday) order counts are minimal, indicating stable customer purchasing behavior throughout the week rather than reliance on specific peak days.
+
+5. Cohort Analysis: Revenue Retention
+While standard retention tracks user counts, **Net Revenue Retention (NRR)** measures the economic health of customer groups. This analysis shows whether a cohort's spending grows or declines over time.
+
+Key Metrics:
+- Cohort: The month of the customer's first purchase.
+- Month Diff: Months elapsed since the first purchase (Month 0 is the acquisition month).
+- Revenue Retention: Percentage of the original month's revenue retained in subsequent periods.
+```sql
+WITH CohortBase AS (
+    SELECT 
+        customer_id, 
+        MIN(order_date) as first_order_date
+    FROM orders
+    GROUP BY customer_id
+),
+Activity AS (
+    SELECT 
+        o.customer_id,
+        o.total_price,
+        strftime('%Y-%m', cb.first_order_date) AS cohort,
+        ((strftime('%Y', o.order_date) - strftime('%Y', cb.first_order_date)) * 12) +
+        (strftime('%m', o.order_date) - strftime('%m', cb.first_order_date)) AS month_diff
+    FROM orders o
+    JOIN CohortBase cb ON o.customer_id = cb.customer_id
+),
+CohortSales AS (
+    SELECT 
+        cohort,
+        month_diff,
+        SUM(total_price) AS revenue
+    FROM Activity
+    GROUP BY cohort, month_diff
+)
+SELECT 
+    cohort,
+    month_diff,
+    ROUND(revenue, 2) as monthly_revenue,
+    ROUND(revenue * 100.0 / FIRST_VALUE(revenue) OVER (PARTITION BY cohort ORDER BY month_diff), 2) || '%' AS revenue_retention
+FROM CohortSales
+ORDER BY cohort, month_diff;
+cohort |month_diff|monthly_revenue|revenue_retention|
+-------+----------+---------------+-----------------+
+2023-11|         0|     2763201.95|100.0%           |
+2023-11|         1|      134587.86|4.87%            |
+2023-11|         2|      130132.78|4.71%            |
+2023-11|         3|      198809.19|7.19%            |
+2023-11|         4|      172608.74|6.25%            |
+2023-11|         5|      189470.78|6.86%            |
+2023-11|         6|      163101.76|5.9%             |
+2023-11|         7|      122933.36|4.45%            |
+2023-11|         8|      170287.56|6.16%            |
+2023-11|         9|       170749.7|6.18%            |
+2023-11|        10|       88148.96|3.19%            |
+2023-11|        11|      209254.58|7.57%            |
+2023-11|        12|       10814.18|0.39%            |
+2023-12|         0|     3226282.05|100.0%           |
+2023-12|         1|      193360.51|5.99%            |
+2023-12|         2|      173279.93|5.37%            |
+2023-12|         3|      149999.58|4.65%            |
+2023-12|         4|      178215.69|5.52%            |
+2023-12|         5|      168193.83|5.21%            |
+2023-12|         6|      173352.79|5.37%            |
+2023-12|         7|      213613.55|6.62%            |
+2023-12|         8|      219427.11|6.8%             |
+2023-12|         9|      167469.77|5.19%            |
+2023-12|        10|      224850.88|6.97%            |
+2023-12|        11|       25302.53|0.78%            |
+2024-01|         0|     3343954.33|100.0%           |
+2024-01|         1|      183239.91|5.48%            |
+2024-01|         2|       223591.3|6.69%            |
+2024-01|         3|      185868.13|5.56%            |
+2024-01|         4|      171136.16|5.12%            |
+2024-01|         5|      224793.49|6.72%            |
+2024-01|         6|      256668.57|7.68%            |
+2024-01|         7|      245957.89|7.36%            |
+2024-01|         8|      139583.15|4.17%            |
+2024-01|         9|      210280.93|6.29%            |
+2024-01|        10|       11818.32|0.35%            |
+2024-02|         0|     2744896.39|100.0%           |
+2024-02|         1|      186161.52|6.78%            |
+2024-02|         2|      179702.62|6.55%            |
+2024-02|         3|      160939.17|5.86%            |
+2024-02|         4|      168778.66|6.15%            |
+2024-02|         5|      223748.72|8.15%            |
+2024-02|         6|      208008.15|7.58%            |
+2024-02|         7|      172610.76|6.29%            |
+2024-02|         8|      191133.39|6.96%            |
+2024-02|         9|       17425.32|0.63%            |
+2024-03|         0|     3023811.34|100.0%           |
+2024-03|         1|      224216.68|7.42%            |
+2024-03|         2|      204162.67|6.75%            |
+2024-03|         3|      175654.13|5.81%            |
+2024-03|         4|       243607.7|8.06%            |
+2024-03|         5|      232480.02|7.69%            |
+2024-03|         6|      229360.05|7.59%            |
+2024-03|         7|      206967.06|6.84%            |
+2024-03|         8|        17500.7|0.58%            |
+2024-04|         0|     2536387.51|100.0%           |
+2024-04|         1|       203794.1|8.03%            |
+2024-04|         2|      224516.82|8.85%            |
+2024-04|         3|      190701.12|7.52%            |
+2024-04|         4|      175992.56|6.94%            |
+2024-04|         5|      217230.75|8.56%            |
+2024-04|         6|      183125.01|7.22%            |
+2024-04|         7|       26048.12|1.03%            |
+2024-05|         0|     2518836.95|100.0%           |
+2024-05|         1|      170794.21|6.78%            |
+2024-05|         2|      277997.18|11.04%           |
+2024-05|         3|      228869.41|9.09%            |
+2024-05|         4|      163670.33|6.5%             |
+2024-05|         5|      173480.55|6.89%            |
+2024-05|         6|       18249.43|0.72%            |
+2024-06|         0|     2094724.67|100.0%           |
+2024-06|         1|      205831.19|9.83%            |
+2024-06|         2|      185053.78|8.83%            |
+2024-06|         3|      219974.89|10.5%            |
+2024-06|         4|      200051.88|9.55%            |
+2024-06|         5|       20826.46|0.99%            |
+2024-07|         0|     1978015.34|100.0%           |
+2024-07|         1|      173402.79|8.77%            |
+2024-07|         2|       213542.5|10.8%            |
+2024-07|         3|      221215.86|11.18%           |
+2024-07|         4|       31622.27|1.6%             |
+2024-08|         0|     1897876.91|100.0%           |
+2024-08|         1|      197357.96|10.4%            |
+2024-08|         2|      229773.86|12.11%           |
+2024-08|         3|       29529.71|1.56%            |
+2024-09|         0|     1717320.61|100.0%           |
+2024-09|         1|      232807.05|13.56%           |
+2024-09|         2|       24210.53|1.41%            |
+2024-10|         0|     1489494.34|100.0%           |
+2024-10|         1|        17565.9|1.18%            |
+2024-11|         0|      160305.41|100.0%           |
+```
+Positive Momentum in Retention: Newer cohorts show a marked improvement in loyalty. While the November 2023 cohort retained only 4.8% of revenue in Month 1, the September 2024 cohort retained 13.5%. This 3x improvement suggests that recent marketing refinements or product adjustments are successfully attracting higher-quality, repeat-purchase customers.
+
+Stability After Initial Drop: After the sharp decline following Month 0 (typical for one-time purchase retail models), revenue levels stabilize and occasionally "peak" later in the lifecycle (e.g., the May 2024 cohort jumped to 11% in Month 2). This indicates a healthy "resurrection" pattern where customers return after a short hiatus.
+
+The "Final Month" Data Decay: The sharp drop in the most recent month (Month 10–12 for early cohorts) is likely due to incomplete data for the current period rather than a total loss of interest, as evidenced by the consistent 5–8% retention in the months prior.
 
 ---
 
@@ -456,6 +598,44 @@ From a business perspective, these insights suggest several opportunities:
 - improving the first-time customer experience to reduce immediate churn and accelerate re-engagement
   
 Overall, combining early churn, fast retention, and repeat purchase timing provides a more complete view of early customer behavior and complements the monthly cohort analysis.
+
+5. Customer Purchase Path & Re-order Analysis
+
+Beyond general sales metrics, it is crucial to understand the customer journey between consecutive orders. This analysis examines the transition from a first purchase to a second, identifying whether customers explore new categories or remain loyal to specific products. By utilizing SQL Window Functions (LAG), I mapped the sequential purchase behavior to identify product 'stickiness' and replenishment cycles, providing actionable data for subscription-based marketing and personalized restock reminders.
+```sql
+WITH OrderHistory AS (
+    SELECT 
+        customer_id,
+        product_id,
+        order_date,
+        LAG(product_id) OVER (PARTITION BY customer_id ORDER BY order_date) AS previous_product
+    FROM orders o
+    JOIN order_items oi ON o.order_id = oi.order_id
+)
+SELECT 
+    previous_product,
+    product_id AS current_product,
+    COUNT(*) AS pair_frequency
+FROM OrderHistory
+WHERE previous_product IS NOT NULL
+GROUP BY previous_product, current_product
+ORDER BY pair_frequency DESC
+LIMIT 10;
+previous_product|current_product|pair_frequency|
+----------------+---------------+--------------+
+             991|            991|            10|
+             986|            986|             9|
+            1111|           1111|             9|
+            1118|           1118|             9|
+             134|            134|             8|
+             670|            670|             8|
+             698|            698|             8|
+            1284|           1284|             8|
+              28|             28|             7|
+              78|             78|             7|
+```
+
+The analysis reveals a high degree of product stickiness, as the most frequent sequential purchases are for identical items. This behavior suggests a replenishment-driven model rather than broad category exploration. From a business perspective, this identifies a strong opportunity for subscription-based recurring revenue and targeted 'restock' automation, as a significant portion of the customer base demonstrates predictable, repetitive purchasing cycles.
 
 ---
 
