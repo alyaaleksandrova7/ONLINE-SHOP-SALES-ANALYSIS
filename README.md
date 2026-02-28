@@ -639,7 +639,10 @@ The analysis reveals a high degree of product stickiness, as the most frequent s
 
 ---
 
-## Customer Lifetime Value (LTV) & Geographic Profitability Analysis
+## Geography 
+
+1. Customer Lifetime Value (**LTV**) & Geographic Profitability Analysis
+
 While high-level revenue metrics provide a snapshot of performance, granular behavior analysis is essential for sustainable growth. This section evaluates Customer Lifetime Value (LTV) and retention patterns, segmented by geographic location (customer addresses). By measuring Average Order Value (AOV), Purchase Frequency, and Time to Second Purchase, we identify high-value clusters and optimize targeted marketing strategies.
 ```sql
 WITH customer_orders AS (
@@ -765,3 +768,109 @@ The average time to a second purchase varies from 92 to 140 days. Regions with s
 
 Regional Economic Variance:
 There is a clear disparity between top-performing states (WV, AK) and lagging regions (SC, PR). The lower LTV in Puerto Rico and South Carolina may indicate price sensitivity or lower market penetration. I recommend testing discount-based promotions in these areas to lower the barrier for repeat purchases.
+
+2. Strategic Geography: Revenue Density & Customer Loyalty
+
+In this section, I analyzed the relationship between geographic location, Average Order Value (AOV), and customer retention. By identifying regions with a high concentration of one-time buyers, I pinpointed where the marketing acquisition cost might be inefficient. Conversely, highlighting states with the highest AOV provides clear guidance on where to focus premium expansion efforts.
+
+```sql
+WITH CustomerStats AS (
+    SELECT 
+        c.customer_id,
+        c.address,
+        COUNT(o.order_id) AS order_count,
+        SUM(o.total_price) AS total_customer_revenue
+    FROM customers_new c
+    JOIN orders o ON c.customer_id = o.customer_id
+    GROUP BY c.customer_id, c.address
+),
+StateMetrics AS (
+    SELECT 
+        address,
+        COUNT(customer_id) AS total_customers,
+        SUM(CASE WHEN order_count = 1 THEN 1 ELSE 0 END) AS one_time_customers,
+        AVG(total_customer_revenue / order_count) AS avg_order_value
+    FROM CustomerStats
+    GROUP BY address
+)
+SELECT 
+    address,
+    total_customers,
+    ROUND(avg_order_value, 2) AS aov,
+    one_time_customers,
+    ROUND((one_time_customers * 100.0 / total_customers), 2) || '%' AS churn_potential_rate
+FROM StateMetrics
+WHERE total_customers > 5
+ORDER BY avg_order_value DESC;
+
+address                             |total_customers|aov    |one_time_customers|churn_potential_rate|
+------------------------------------+---------------+-------+------------------+--------------------+
+828 Shell Rd, Beach Haven, WV       |            140|3433.66|                74|52.86%              |
+929 Harbor Rd, Bay View, AK         |            140| 3200.3|                70|50.0%               |
+565 Summit Rd, High Point, NC       |            200|3109.28|               101|50.5%               |
+272 Coast Rd, Sea Cliff, MH         |            140|3100.87|                77|55.0%               |
+161 Harbor Ln, Bay Point, FM        |            140|3058.99|                76|54.29%              |
+727 Pier Dr, River Valley, GU       |            140| 3029.2|                81|57.86%              |
+838 Marina Rd, Lake Haven, AS       |            140|3023.48|                65|46.43%              |
+789 Oak Ave, Metropolis, NY         |            210|3014.84|               110|52.38%              |
+797 Ocean Ave, Coastal Haven, HI    |            140|2985.75|                80|57.14%              |
+232 River St, Crystal Lake, IN      |            210|2981.65|               105|50.0%               |
+456 Elm St, Anytown, CA             |            210|2977.91|               103|49.05%              |
+616 Boardwalk St, Canal City, VI    |            140|2974.21|                61|43.57%              |
+898 Spring Ave, Blue Ridge, TN      |            140|2965.77|                67|47.86%              |
+606 Cherry Cir, Bludhaven, DE       |            210| 2947.2|               110|52.38%              |
+121 Forest Ln, Emerald Heights, WI  |            210|2941.55|                96|45.71%              |
+939 Sand Ln, Gulf Shore, NE         |            140|2937.92|                73|52.14%              |
+696 Anchor St, Port Town, MO        |            140|2933.27|                67|47.86%              |
+686 Canyon St, Desert Springs, NM   |            140|2932.01|                71|50.71%              |
+575 Vista Rd, Eagle Point, ID       |            140|2897.71|                69|49.29%              |
+333 Hickory Rd, River City, TX      |            210|2896.79|               109|51.9%               |
+131 Park Rd, Twin Peaks, MT         |            140|2894.13|                67|47.86%              |
+454 Valley Dr, Bridge Town, CT      |            210|2884.58|               101|48.1%               |
+484 Dune Rd, Salt Lake, DC          |            140|2878.92|                67|47.86%              |
+717 Wave Dr, Coral Bay, OK          |            140|2862.29|                68|48.57%              |
+676 Hill St, Pleasant Valley, UT    |            140|2845.75|                68|48.57%              |
+919 Meadow Dr, Valley Falls, RI     |            140|2844.57|                64|45.71%              |
+666 Sycamore St, Silver Springs, MD |            210|2837.51|               115|54.76%              |
+101 Maple Dr, Smallville, KS        |            210|2833.25|               107|50.95%              |
+818 Beach Dr, Port City, ME         |            140|2832.19|                69|49.29%              |
+343 Lake Ave, Harbor City, VA       |            210|2830.81|                95|45.24%              |
+464 Mountain Dr, Shadow Vale, WY    |            140|2822.54|                74|52.86%              |
+707 Aspen Way, Fawcett City, OH     |            210|2821.96|               100|47.62%              |
+151 Pearl St, Seaside, SD           |            140|2811.06|                75|53.57%              |
+444 Magnolia Blvd, Mountain View, AZ|            210|2810.13|                96|45.71%              |
+123 Main St, Springfield, IL        |            210|2806.51|               110|52.38%              |
+373 Seashell Dr, Ocean Grove, KY    |            140| 2805.4|                71|50.71%              |
+808 Willow St, Paradise City, FL    |            210|2802.47|               114|54.29%              |
+505 Walnut St, Coast City, OR       |            210|2796.68|               113|53.81%              |
+353 Brook Ave, Fairview, NH         |            140|2787.11|                59|42.14%              |
+262 Coral Ave, Palm Beach, ND       |            140|2786.39|                79|56.43%              |
+363 Bay St, Lakeside, IA            |            140|2754.35|                69|49.29%              |
+202 Pine Ln, Gotham, NJ             |            210|2752.58|               107|50.95%              |
+585 Lighthouse Rd, Sea Haven, LA    |            140|2746.24|                66|47.14%              |
+949 Port Ave, Sound View, MP        |            140|2736.03|                68|48.57%              |
+404 Birch Blvd, Central City, CO    |            210|2728.49|               102|48.57%              |
+474 Marina Ave, Harbor View, VT     |            140|2706.77|                69|49.29%              |
+242 Garden St, Liberty City, AL     |            140|2705.32|                71|50.71%              |
+383 Shore Dr, Beach City, PW        |            140|2696.78|                69|49.29%              |
+141 Shore Ln, Island City, MA       |            140|2692.31|                63|45.0%               |
+777 Juniper Ave, Golden Valley, NV  |            210|2674.24|               106|50.48%              |
+111 Redwood Ave, Bay Harbor, MI     |            210| 2669.7|               109|51.9%               |
+909 Dogwood Ln, Steel City, PA      |            210|2628.41|                93|44.29%              |
+555 Palm Dr, Ocean Side, SC         |            210| 2623.5|               117|55.71%              |
+222 Sequoia Dr, Lake Town, MN       |            210| 2605.7|               104|49.52%              |
+303 Cedar Rd, Star City, WA         |            210|2599.75|               104|49.52%              |
+787 Creek Ln, Green Valley, AR      |            140|2584.74|                61|43.57%              |
+888 Beech Rd, Sun City, GA          |            210|2581.92|               104|49.52%              |
+595 Surf Ave, Bayshore, PR          |            140|2553.12|                70|50.0%               |
+252 Coast Dr, Sunset Beach, MS      |            140|2517.76|                71|50.71%              |
+```
+Premium Revenue Drivers: West Virginia (WV) and Alaska (AK) lead in purchasing power with a top-tier AOV of $3,433 and $3,200 respectively. Markets like North Carolina (NC) and New York (NY) show the best scalability, maintaining high AOV ($3,000+) with a larger customer base (200+ clients).
+
+The Churn Challenge: A significant business risk was identified in Guam (GU) and Hawaii (HI), where the churn potential rate exceeds 57%. This suggests that while acquisition is successful, the brand fails to secure long-term loyalty in these island regions.
+
+Retention Excellence: Virgin Islands (VI) and New Hampshire (NH) exhibit the highest loyalty levels, with churn rates dropping as low as 42-43%, significantly better than the national average.
+
+Strategic Conclusion:
+
+To optimize ROI, marketing efforts should pivot from broad acquisition to localized retention in high-churn states (GU, HI). The high AOV in these regions justifies a more expensive re-engagement strategy, such as personalized loyalty rewards, to convert one-time spenders into long-term assets.
